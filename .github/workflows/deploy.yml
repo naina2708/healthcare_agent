@@ -1,0 +1,51 @@
+name: Deploy to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1  # Change to your preferred region
+  ECR_REPOSITORY: healthcare-agent  # Change to your ECR repo name
+  ECS_CLUSTER: healthcare-cluster  # Change to your ECS cluster name
+  ECS_SERVICE: healthcare-service  # Change to your ECS service name
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Register new task definition
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition healthcare-agent-task --region $AWS_REGION)
+        NEW_CONTAINER_DEFINITIONS=$(echo $TASK_DEFINITION | jq --arg IMAGE ${{ steps.build-image.outputs.image }} '.taskDefinition.containerDefinitions | map(if .name == "healthcare-agent" then .image = $IMAGE else . end)')
+        aws ecs register-task-definition --family healthcare-agent-task --container-definitions "$NEW_CONTAINER_DEFINITIONS" --requires-compatibilities FARGATE --network-mode awsvpc --cpu 256 --memory 512 --execution-role-arn arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole --task-role-arn arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole --region $AWS_REGION
+
+    - name: Update ECS service
+      run: |
+        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force-new-deployment --region $AWS_REGION

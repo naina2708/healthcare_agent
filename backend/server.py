@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from planner_agent import HEALTHCARE_KNOWLEDGE_BASE, PlannerAgent
+from backend.planner_agent import HEALTHCARE_KNOWLEDGE_BASE, PlannerAgent
 
 app = FastAPI(title="Healthcare Planning Assistant API", version="1.0.0")
 
